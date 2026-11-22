@@ -1,78 +1,84 @@
 #!/usr/bin/env python3
-"""picture-tastes-20261122 entry: write the torn fried chicken image to /output.
+"""Picture-tastes entry: emit the locked fried-chicken image.
 
-The image was composed at build time and is held in this repository as
-entry.jpg. The grader runs this program with no network and standard
-library only, so all it does is check the image (format, dimensions,
-size cap) and copy it unchanged. Deterministic: the same input bytes
-give the same output bytes on every run.
+The picture itself was chosen by the entrant before this program was
+written and lives in the repository as entry.jpg. The grading sandbox
+has no network and only the standard library, so this program does
+nothing creative at run time: it proves the stored picture is a whole
+1024x1024 JPEG inside the 1 MiB cap, then copies its bytes unchanged
+to /output/entry.png and proves the copy byte-for-byte.
+
+Same bytes in, same bytes out, every run.
 """
+
 import hashlib
 import os
 import struct
 import sys
 
-WANT_W, WANT_H = 1024, 1024
-MAX_BYTES = 1_048_576
+EXPECTED_WIDTH = 1024
+EXPECTED_HEIGHT = 1024
+BYTE_CAP = 1_048_576
+SOURCE_NAME = "entry.jpg"
 
 
-def jpeg_size(data):
-    """Walk JPEG markers to the frame header; return (w, h) or None."""
-    i = 2
-    while i + 9 < len(data):
-        if data[i] != 0xFF:
-            i += 1
+def frame_dimensions(blob):
+    """Scan JPEG markers for the SOF frame; return (width, height)."""
+    pos = 2  # skip the SOI marker
+    while pos + 9 <= len(blob):
+        if blob[pos] != 0xFF:
+            pos += 1
             continue
-        marker = data[i + 1]
+        marker = blob[pos + 1]
         if marker in (0xC0, 0xC1, 0xC2):
-            h = struct.unpack(">H", data[i + 5:i + 7])[0]
-            w = struct.unpack(">H", data[i + 7:i + 9])[0]
-            return w, h
+            height = struct.unpack(">H", blob[pos + 5:pos + 7])[0]
+            width = struct.unpack(">H", blob[pos + 7:pos + 9])[0]
+            return width, height
         if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
-            i += 2
+            pos += 2
             continue
-        size = struct.unpack(">H", data[i + 2:i + 4])[0]
-        i += 2 + size
+        segment = struct.unpack(">H", blob[pos + 2:pos + 4])[0]
+        pos += 2 + segment
     return None
 
 
-def check(data):
-    """Return (format, w, h); exit with a message on any failure."""
-    if len(data) > MAX_BYTES:
-        sys.exit(f"entry image is {len(data)} bytes, over the 1 MiB cap")
-    if data[:3] != b"\xff\xd8\xff":
-        sys.exit("entry image is not a JPEG (bad magic bytes)")
-    if data[-2:] != b"\xff\xd9":
-        sys.exit("entry image is not a whole JPEG (missing FFD9 trailer)")
-    dims = jpeg_size(data)
+def validate(blob):
+    """Refuse anything that is not a whole 1024x1024 JPEG under the cap."""
+    if len(blob) > BYTE_CAP:
+        sys.exit("entry image is %d bytes, over the 1 MiB cap" % len(blob))
+    if blob[:3] != b"\xff\xd8\xff":
+        sys.exit("entry image does not start with the JPEG SOI marker")
+    if blob[-2:] != b"\xff\xd9":
+        sys.exit("entry image does not end with the JPEG EOI marker")
+    dims = frame_dimensions(blob)
     if dims is None:
-        sys.exit("could not read JPEG dimensions")
-    w, h = dims
-    if (w, h) != (WANT_W, WANT_H):
-        sys.exit(f"entry image is {w}x{h}, expected {WANT_W}x{WANT_H}")
-    return "JPEG", w, h
+        sys.exit("no JPEG frame header found in entry image")
+    if dims != (EXPECTED_WIDTH, EXPECTED_HEIGHT):
+        sys.exit("entry image is %dx%d, expected %dx%d"
+                 % (dims[0], dims[1], EXPECTED_WIDTH, EXPECTED_HEIGHT))
+    return dims
 
 
-def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "entry.jpg"), "rb") as fh:
-        data = fh.read()
-    kind, w, h = check(data)
+def run():
+    repo = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(repo, SOURCE_NAME), "rb") as handle:
+        blob = handle.read()
+    width, height = validate(blob)
 
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
-    dst = os.path.join(out_dir, "entry.png")
-    with open(dst, "wb") as fh:
-        fh.write(data)
-
-    with open(dst, "rb") as fh:
-        written = fh.read()
-    if hashlib.sha256(written).hexdigest() != hashlib.sha256(data).hexdigest():
-        sys.exit("output differs from source after copy")
-    check(written)
-    print(f"wrote {dst}: {kind} {w}x{h}, {len(data)} bytes, "
-          f"sha256 {hashlib.sha256(data).hexdigest()[:16]}...")
+    target = os.path.join(out_dir, "entry.png")
+    with open(target, "wb") as handle:
+        handle.write(blob)
+    with open(target, "rb") as handle:
+        copied = handle.read()
+    if hashlib.sha256(copied).hexdigest() != hashlib.sha256(blob).hexdigest():
+        sys.exit("copied image differs from the stored image")
+    validate(copied)
+    print("wrote %s: JPEG %dx%d, %d bytes, sha256 %s..."
+          % (target, width, height, len(blob),
+             hashlib.sha256(blob).hexdigest()[:16]))
 
 
 if __name__ == "__main__":
-    main()
+    run()
