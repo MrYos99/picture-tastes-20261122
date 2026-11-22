@@ -1,117 +1,123 @@
 #!/usr/bin/env python3
-"""Torn fried chicken — picture-tastes bounty entry.
+"""Torn fried chicken — picture-tastes entry.
 
-Reads the locked entry image (``entry.jpg``) from the repository root,
-checks it is a whole 1024x1024 JPEG within the 1 MiB size limit, and
-copies its bytes unchanged to ``/output/entry.png``. The output is then
-re-read and its SHA-256 compared against the source, so the file that
-leaves the repo is provably the exact image John picked.
+Reads the locked ``entry.jpg`` from this repository root (golden crispy
+fried chicken torn in two halves, white shredded meat exposed, steam
+rising from the tear), checks that it is a complete JPEG of exactly
+1024x1024 pixels and no more than 1,048,576 bytes, then copies its bytes
+unchanged to ``/output/entry.png``.
 
-Verified image contract (checked before the entry was sealed):
-``entry.jpg`` is a whole 1024x1024 JPEG of 168,486 bytes, sha256
-70d8bcb1a5682e8f9ba5cd8c5bc525af87130dd4baf13224abf15717c5046707,
-and ``/output/entry.png`` must be byte-identical to it.
+Python 3.13, standard library only, no network access. The output file
+keeps the ``.png`` name the bounty harness expects, but its contents are
+the original JPEG bytes, byte for byte.
 
-Exits 0 on success and 1 on any failed check, with the reason on
-stderr. Standard library only; no network access.
+Exit code 0 means every check passed and the copy is verified identical;
+exit code 1 means a check failed, with the reason printed on stderr.
 """
 
 from __future__ import annotations
 
 import hashlib
-import shutil
 import struct
 import sys
 from pathlib import Path
 
 SOURCE_NAME = "entry.jpg"
-OUTPUT_PATH = Path("/output/entry.png")
-MAX_BYTES = 1_048_576
+TARGET_NAME = "entry.png"
 EXPECTED_WIDTH = 1024
 EXPECTED_HEIGHT = 1024
-
+MAX_SIZE_BYTES = 1_048_576
 JPEG_START = b"\xff\xd8"
 JPEG_END = b"\xff\xd9"
 
-# Markers whose segments carry a frame header (baseline / progressive).
-FRAME_MARKERS = {0xC0, 0xC1, 0xC2}
+
+class EntryError(RuntimeError):
+    """Raised when the source image fails any acceptance check."""
 
 
-def sha256_hex(data: bytes) -> str:
-    """Return the lowercase hex SHA-256 digest of ``data``."""
-    return hashlib.sha256(data).hexdigest()
+def sha256_hex(blob: bytes) -> str:
+    """Return the lowercase hex SHA-256 digest of *blob*."""
+    return hashlib.sha256(blob).hexdigest()
 
 
-def jpeg_dimensions(data: bytes) -> tuple[int, int]:
-    """Extract (width, height) from the first JPEG frame header.
+def jpeg_dimensions(blob: bytes) -> tuple[int, int]:
+    """Scan JPEG markers for the first SOF frame and return (width, height).
 
-    Walks the marker segments after the SOI marker until a frame
-    (SOF0/SOF1/SOF2) marker is found; its payload stores the height
-    and width as two big-endian 16-bit values.
+    Walks the marker segments from the start of the file; the frame header
+    (SOF0/SOF1/SOF2) stores height then width as two big-endian shorts.
+    Raises EntryError if no frame header is found before the scan data.
     """
-    pos = 2  # skip the SOI marker
-    while pos + 4 <= len(data):
-        if data[pos] != 0xFF:
-            raise ValueError("malformed JPEG: expected a marker")
-        marker = data[pos + 1]
-        if marker in FRAME_MARKERS:
-            height, width = struct.unpack(">HH", data[pos + 5 : pos + 9])
-            return width, height
-        if marker == 0xD8:  # stray SOI — advance one byte and keep looking
-            pos += 1
+    offset = 2  # skip the SOI marker (FFD8)
+    while offset + 4 <= len(blob):
+        if blob[offset] != 0xFF:
+            offset += 1
             continue
-        segment_len = struct.unpack(">H", data[pos + 2 : pos + 4])[0]
-        pos += 2 + segment_len
-    raise ValueError("no JPEG frame header found")
+        marker = blob[offset + 1]
+        if marker in (0xC0, 0xC1, 0xC2):  # baseline / extended / progressive
+            height, width = struct.unpack_from(">HH", blob, offset + 5)
+            return width, height
+        if marker == 0xDA:  # start of scan: no frame header follows
+            break
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            offset += 2  # standalone markers carry no length field
+            continue
+        segment_len = struct.unpack_from(">H", blob, offset + 2)[0]
+        offset += 2 + segment_len
+    raise EntryError("no JPEG frame header (SOF) found")
 
 
-def check_image(data: bytes, label: str) -> tuple[int, int]:
-    """Validate the image bytes and return their dimensions."""
-    if len(data) > MAX_BYTES:
-        raise ValueError(
-            f"{label}: {len(data)} bytes exceeds the {MAX_BYTES} byte limit"
+def accept_source(blob: bytes) -> tuple[int, int]:
+    """Run every acceptance check on the source bytes; return (w, h)."""
+    if not blob.startswith(JPEG_START):
+        raise EntryError("source does not start with JPEG SOI (FFD8)")
+    if not blob.endswith(JPEG_END):
+        raise EntryError("source does not end with JPEG EOI (FFD9)")
+    if len(blob) > MAX_SIZE_BYTES:
+        raise EntryError(
+            f"source is {len(blob)} bytes, over the {MAX_SIZE_BYTES} limit"
         )
-    if not data.startswith(JPEG_START):
-        raise ValueError(f"{label}: missing JPEG SOI marker (FFD8)")
-    if not data.endswith(JPEG_END):
-        raise ValueError(f"{label}: missing JPEG EOI marker (FFD9)")
-    width, height = jpeg_dimensions(data)
+    width, height = jpeg_dimensions(blob)
     if (width, height) != (EXPECTED_WIDTH, EXPECTED_HEIGHT):
-        raise ValueError(
-            f"{label}: {width}x{height}, expected "
+        raise EntryError(
+            f"source is {width}x{height}, expected "
             f"{EXPECTED_WIDTH}x{EXPECTED_HEIGHT}"
         )
     return width, height
 
 
 def main() -> int:
-    source_path = Path(__file__).resolve().parent / SOURCE_NAME
+    repo_root = Path(__file__).resolve().parent
+    source_path = repo_root / SOURCE_NAME
+    output_dir = Path("/output")
+    output_path = output_dir / TARGET_NAME
 
     try:
-        source_bytes = source_path.read_bytes()
-    except FileNotFoundError:
-        print(f"error: {source_path} not found", file=sys.stderr)
+        blob = source_path.read_bytes()
+    except OSError as exc:
+        print(f"error: cannot read {source_path}: {exc}", file=sys.stderr)
         return 1
 
     try:
-        check_image(source_bytes, SOURCE_NAME)
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        width, height = accept_source(blob)
+    except EntryError as exc:
+        print(f"error: {source_path} rejected: {exc}", file=sys.stderr)
         return 1
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source_path, OUTPUT_PATH)
+    source_digest = sha256_hex(blob)
 
-    output_bytes = OUTPUT_PATH.read_bytes()
-    if sha256_hex(output_bytes) != sha256_hex(source_bytes):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(blob)
+
+    # Re-read the copy and prove it is byte-identical to the source.
+    written = output_path.read_bytes()
+    if sha256_hex(written) != source_digest:
         print("error: output digest differs from source", file=sys.stderr)
         return 1
 
-    width, height = jpeg_dimensions(output_bytes)
     print(
-        f"ok: {SOURCE_NAME} -> {OUTPUT_PATH} "
-        f"({width}x{height} JPEG, {len(output_bytes)} bytes, "
-        f"sha256 {sha256_hex(output_bytes)})"
+        f"ok: {SOURCE_NAME} -> {output_path} "
+        f"({width}x{height} JPEG, {len(blob)} bytes, "
+        f"sha256={source_digest})"
     )
     return 0
 
