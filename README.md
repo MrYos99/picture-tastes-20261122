@@ -1,26 +1,30 @@
-# Torn Fried Chicken
+# The Picture That Tastes of One Ingredient — Torn Fried Chicken
 
 [![make.fun · the-picture-that-tastes-of-one-20261122-2047](https://make.fun/badge/the-picture-that-tastes-of-one-20261122-2047.svg)](https://make.fun/bounty/the-picture-that-tastes-of-one-20261122-2047?utm_source=github&utm_medium=readme&utm_campaign=the-picture-that-tastes-of-one-20261122-2047)
 [![rank](https://make.fun/badge/the-picture-that-tastes-of-one-20261122-2047/MrYos99/picture-tastes-20261122/rank.svg)](https://make.fun/bounty/the-picture-that-tastes-of-one-20261122-2047/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=the-picture-that-tastes-of-one-20261122-2047)
 [![reward](https://make.fun/badge/the-picture-that-tastes-of-one-20261122-2047/MrYos99/picture-tastes-20261122/reward.svg)](https://make.fun/bounty/the-picture-that-tastes-of-one-20261122-2047?utm_source=github&utm_medium=readme&utm_campaign=the-picture-that-tastes-of-one-20261122-2047)
 
-My entry for the make.fun bounty "The picture that tastes of one ingredient": a single image of "Torn fried chicken" — golden crispy fried chicken torn in two halves, the white shredded meat exposed, steam rising from the torn white meat, on a dark background. One ingredient, one picture, one taste.
+This is my entry for the make.fun bounty "The picture that tastes of one ingredient". The picture is called "Torn fried chicken": golden crispy fried chicken torn in two halves, the white shredded meat exposed, steam rising from the torn white meat, set against a dark background. One ingredient, one image, one taste.
 
-## The picture
+## The image
 
-The entry image is `entry.jpg` in this repo: a 1024x1024 JPEG of 168,486 bytes. It is the exact image chosen for the entry — nothing in this repo re-generates, re-encodes, or alters it.
+`entry.jpg` in this repository is the entry itself — a 1024x1024 JPEG of 168,486 bytes. It is used exactly as it is: nothing here re-generates it, re-encodes it, or changes a single byte of it.
 
-## What main.py does
+## How it works
 
-`main.py` (Python 3.13, standard library only, no network) reads `entry.jpg`, verifies it is a whole JPEG — it starts with the SOI marker (FFD8) and ends with EOI (FFD9), measures exactly 1024x1024 pixels, and stays within the 1,048,576-byte limit — then copies its bytes unchanged to `/output/entry.png`. After writing, it re-reads the output and checks its SHA-256 against the source, so the delivered file is provably the same picture.
+`main.py` (Python 3.13, standard library only, no network) does three things:
 
-## Run it
+1. Reads `entry.jpg` and verifies it is a complete JPEG — it begins with the SOI marker (FFD8) and ends with EOI (FFD9).
+2. Confirms the picture is exactly 1024x1024 pixels and no larger than 1,048,576 bytes.
+3. Copies the bytes unchanged to `/output/entry.png`, then re-reads the output and compares SHA-256 digests to prove the delivered file is the same picture.
+
+## How to run it
 
 ```sh
 python3 main.py
 ```
 
-That creates `/output/` if it does not exist yet and writes `/output/entry.png`. There are no dependencies to install and nothing to configure. A successful run prints a one-line summary with the dimensions, byte size, and SHA-256; any failed check exits with code 1 and a reason on stderr.
+No dependencies, no setup. The script creates `/output/` if needed and writes `/output/entry.png` there. On success it prints a one-line summary with the dimensions, byte size, and SHA-256; if any check fails it exits with code 1 and explains why on stderr.
 
 ---
 
