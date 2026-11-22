@@ -9,6 +9,11 @@ nothing creative at run time: it proves the stored picture is a whole
 to /output/entry.png and proves the copy byte-for-byte.
 
 Same bytes in, same bytes out, every run.
+
+Contract, verified before submit: entry.jpg is a whole 1024x1024 JPEG
+of 168,486 bytes, sha256
+70d8bcb1a5682e8f9ba5cd8c5bc525af87130dd4baf13224abf15717c5046707,
+and /output/entry.png is byte-identical to it.
 """
 
 import hashlib
